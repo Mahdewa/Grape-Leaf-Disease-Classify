@@ -1,22 +1,16 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-import tensorflow as tf
 import numpy as np
 from PIL import Image, ImageOps
+import tflite_runtime.interpreter as tflite
 import io
-import os
 
 app = Flask(__name__)
+
 CORS(app)
 
-try:
-    model = tf.keras.models.load_model('model_terbaik_klasifikasi_anggur.h5')
-    print("✅ Model berhasil dimuat!")
-except:
-    print("❌ Model tidak ditemukan.")
-    model = None
-
-# Definisi Kelas
+# --- KONFIGURASI MODEL ---
+MODEL_PATH = "model_anggur.tflite"
 CLASS_NAMES = [
     'Grape___Black_rot', 
     'Grape___Esca_(Black_Measles)', 
@@ -24,49 +18,62 @@ CLASS_NAMES = [
     'Grape___healthy'
 ]
 
+# Load Model di luar request agar tidak berat (Global Load)
+try:
+    interpreter = tflite.Interpreter(model_path=MODEL_PATH)
+    interpreter.allocate_tensors()
+    input_details = interpreter.get_input_details()
+    output_details = interpreter.get_output_details()
+    print("✅ Model TFLite Loaded Successfully")
+except Exception as e:
+    print(f"❌ Error loading model: {e}")
+
+@app.route('/')
+def home():
+    return "BotaniScan API is Running!"
+
 @app.route('/predict', methods=['POST'])
 def predict():
     if 'file' not in request.files:
-        return jsonify({'error': 'Tidak ada file diupload'}), 400
+        return jsonify({'error': 'No file uploaded'}), 400
     
     file = request.files['file']
     
     try:
-        # 2. PREPROCESSING IMAGE
-        # Baca gambar langsung dari memori (tanpa save ke disk dulu)
+        # 1. Preprocessing Gambar
         image = Image.open(file.stream)
-        
-        # Resize ke 128x128 (Sesuai training di Kaggle)
+        # Pastikan mode RGB (kadang PNG punya 4 channel/RGBA)
+        if image.mode != 'RGB':
+            image = image.convert('RGB')
+            
+        # Resize sesuai training (128x128)
         image = ImageOps.fit(image, (128, 128), Image.Resampling.LANCZOS)
         
-        # Convert ke Array & Normalisasi (Sesuai training 1./255)
-        img_array = np.asarray(image)
+        # Convert ke Array & Normalisasi
+        img_array = np.asarray(image, dtype=np.float32)
         img_array = img_array / 255.0
-        
-        # Tambah dimensi batch (Jadi (1, 128, 128, 3))
-        img_array = np.expand_dims(img_array, axis=0)
+        img_array = np.expand_dims(img_array, axis=0) # Jadi (1, 128, 128, 3)
 
-        # 3. PREDIKSI
-        if model is None:
-            return jsonify({'error': 'Model belum siap'}), 500
-
-        prediction = model.predict(img_array)
-        class_index = np.argmax(prediction)
-        confidence = float(np.max(prediction) * 100)
+        # 2. Prediksi dengan TFLite
+        interpreter.set_tensor(input_details[0]['index'], img_array)
+        interpreter.invoke()
+        output_data = interpreter.get_tensor(output_details[0]['index'])
         
+        # 3. Ambil Hasil
+        class_index = np.argmax(output_data)
+        confidence = float(np.max(output_data) * 100)
         result_class = CLASS_NAMES[class_index]
 
-        # Kirim respons JSON ke React
         return jsonify({
             'class': result_class,
             'confidence': f"{confidence:.2f}",
-            'status': 'success'
+            'message': 'Success'
         })
 
     except Exception as e:
-        print(e)
         return jsonify({'error': str(e)}), 500
 
+# Untuk Vercel, kita tidak perlu app.run() di dalam if __name__ == main
+# Tapi dibiarkan juga tidak apa-apa untuk tes lokal
 if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port)
+    app.run(debug=True)
