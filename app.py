@@ -4,13 +4,15 @@ import numpy as np
 from PIL import Image, ImageOps
 import tflite_runtime.interpreter as tflite
 import io
+import os
 
 app = Flask(__name__)
 
 CORS(app)
 
 # --- KONFIGURASI MODEL ---
-MODEL_PATH = "model_anggur.tflite"
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+MODEL_PATH = os.path.join(BASE_DIR, "model_anggur.tflite")
 CLASS_NAMES = [
     'Grape___Black_rot', 
     'Grape___Esca_(Black_Measles)', 

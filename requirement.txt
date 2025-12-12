@@ -2,5 +2,4 @@ Flask==3.0.0
 flask-cors==4.0.0
 numpy==1.26.2
 Pillow==10.1.0
-# Library khusus agar muat di Vercel (Linux x86_64):
 https://github.com/alexandru-dinu/tflite-runtime/releases/download/2.14.0/tflite_runtime-2.14.0-cp39-cp39-manylinux2014_x86_64.whl
